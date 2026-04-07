@@ -52,12 +52,13 @@ def build_price_comparison(
         lambda code: f"https://www.galgo.com/{country.lower()}/motos/{code}"
     )
 
-    df_merged["price_scraped_with_galgo_fee"] = (
+    price_clean = (
         df_merged["price_scraped"]
         .astype(str)
         .str.replace(",", "", regex=False)
-        .astype(int)
-        + GALGO_FEE
+    )
+    df_merged["price_scraped_with_galgo_fee"] = (
+        pd.to_numeric(price_clean, errors="coerce") + GALGO_FEE
     )
 
     df_merged["price_diff"] = (
