@@ -7,3 +7,4 @@ __pycache__/
 *.xlsx
 outputs/
 key-google-sheets.json
+trash/
