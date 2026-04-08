@@ -1,13 +1,5 @@
 # src/config/settings.py
-import pathlib
 from pathlib import Path
-
-# Raíz del proyecto: sube 3 niveles desde este archivo
-# # settings.py → config/ → src/ → proyecto/
-# PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
-
-# # Desde PROJECT_ROOT construyes lo que necesites
-# SRC_DIR = PROJECT_ROOT / "src"
 
 # Directorio de la aplicación
 CURRENT_FILE = Path(__file__).resolve()
