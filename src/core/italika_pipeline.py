@@ -16,30 +16,34 @@ def build_price_comparison(
     df_scraped: pd.DataFrame,
     df_inventory: pd.DataFrame,
     country: str,
+    galgo_fee: float = GALGO_FEE,
 ) -> pd.DataFrame:
-    """Construye el DataFrame final de comparación de precios para Italika.
+    """Construye el DataFrame final de comparación de precios para una marca.
 
     Une el resultado del scraping con el inventario, aplica el fee de Galgo
-    (+1000 MXN, exclusivo de Italika) y calcula la diferencia de precio.
+    y calcula la diferencia de precio.
 
     Args:
         df_scraped: DataFrame con columnas model_mapped y los campos del scrape.
         df_inventory: DataFrame del inventario filtrado por marca, con columna model_lower.
         country: Código de país (ej. 'MX'), usado para construir la URL de marketplace.
+        galgo_fee: Fee aplicado sobre el precio scrapeado para comparar contra inventario.
 
     Returns:
         DataFrame con columnas definidas en _FINAL_COLUMNS.
     """
-    df = df_scraped.copy()
     df_inv = df_inventory.copy()
+    df = df_scraped.copy()
     df_inv["model_lower"] = df_inv["model"].str.lower()
+    df_inv["year"] = pd.to_numeric(df_inv["year"], errors="coerce")
+    df["year_scraped"] = pd.to_numeric(df.get("year_scraped"), errors="coerce")
 
     df_merged = pd.merge(
-        df,
         df_inv,
-        left_on="model_mapped",
-        right_on="model_lower",
-        how="left",
+        df,
+        left_on=["model_lower", "year"],
+        right_on=["model_mapped", "year_scraped"],
+        how="outer",
         indicator=True,
     )
 
@@ -58,7 +62,7 @@ def build_price_comparison(
         .str.replace(",", "", regex=False)
     )
     df_merged["price_scraped_with_galgo_fee"] = (
-        pd.to_numeric(price_clean, errors="coerce") + GALGO_FEE
+        pd.to_numeric(price_clean, errors="coerce") + galgo_fee
     )
 
     df_merged["price_diff"] = (
