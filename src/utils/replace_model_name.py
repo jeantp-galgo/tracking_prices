@@ -2,7 +2,7 @@ import json
 import os
 import re
 from typing import Dict, Optional
-from src.config.settings import COUNTRY, SRC_DIR
+from src.config.settings import SRC_DIR
 
 def normalize_brand_name(marca: str) -> str:
     """Normaliza el nombre de la marca para el nombre del archivo."""
@@ -71,40 +71,3 @@ def map_model_name(modelo: str, mapeo_nombres: Dict[str, str]) -> str:
     # Normalizar las claves del mapeo para comparación
     mapeo_normalizado = {str(k).strip().lower(): v for k, v in mapeo_nombres.items()}
     return mapeo_normalizado.get(modelo_limpio, modelo_limpio)
-
-
-def save_mapping_file(country: str, marca: str, mapeo_nombres: Dict[str, str]) -> None:
-    """
-    Guarda el archivo JSON de mapeo de nombres para un país y marca.
-
-    Args:
-        country: Código del país (ej: 'MX', 'CO')
-        marca: Nombre de la marca
-        mapeo_nombres: Diccionario con el mapeo de nombres a guardar
-    """
-    filename = get_mapping_file_path(country, marca)
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(mapeo_nombres, f, ensure_ascii=False, indent=4)
-    print(f"Archivo de mapeo guardado: {filename}")
-
-
-# Función de conveniencia para uso directo
-def map_model_name_from_file(modelo: str, country: str, marca: str) -> str:
-    """
-    Mapea un modelo cargando el archivo de mapeo automáticamente.
-
-    Útil para uso puntual. Si vas a mapear muchos modelos,
-    es más eficiente cargar el mapeo una vez y usar map_model_name().
-
-    Args:
-        modelo: Nombre del modelo a mapear
-        country: Código del país
-        marca: Nombre de la marca
-
-    Returns:
-        Nombre mapeado o 'no encontrado'
-    """
-    country_to_use = country or COUNTRY
-    mapeo = load_mapping_file(country_to_use, marca)
-    return map_model_name(modelo, mapeo)
