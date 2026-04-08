@@ -1,15 +1,13 @@
 import json
 import os
+import re
 from typing import Dict, Optional
 from src.config.settings import COUNTRY, SRC_DIR
 
 def normalize_brand_name(marca: str) -> str:
     """Normaliza el nombre de la marca para el nombre del archivo."""
-    if marca == "CF Moto":
-        return "cf_moto"
-    elif marca == "QJ Motor":
-        return "qj_motor"
-    return marca.lower()
+    normalized = re.sub(r"[^a-z0-9]+", "_", (marca or "").strip().lower())
+    return normalized.strip("_")
 
 
 def get_mapping_file_path(country: str, marca: str) -> str:
@@ -69,9 +67,9 @@ def map_model_name(modelo: str, mapeo_nombres: Dict[str, str]) -> str:
     Returns:
         Nombre mapeado si existe en el diccionario, o el nombre original si no
     """
-    modelo_limpio = modelo.strip()
+    modelo_limpio = str(modelo).strip().lower()
     # Normalizar las claves del mapeo para comparación
-    mapeo_normalizado = {k.strip(): v for k, v in mapeo_nombres.items()}
+    mapeo_normalizado = {str(k).strip().lower(): v for k, v in mapeo_nombres.items()}
     return mapeo_normalizado.get(modelo_limpio, modelo_limpio)
 
 
@@ -107,6 +105,6 @@ def map_model_name_from_file(modelo: str, country: str, marca: str) -> str:
     Returns:
         Nombre mapeado o 'no encontrado'
     """
-    country = COUNTRY
-    mapeo = load_mapping_file(country, marca)
+    country_to_use = country or COUNTRY
+    mapeo = load_mapping_file(country_to_use, marca)
     return map_model_name(modelo, mapeo)
