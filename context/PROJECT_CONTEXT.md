@@ -1,222 +1,143 @@
-# Contexto del Proyecto: tracking_prices_changes
+# tracking_prices_changes — Contexto del Proyecto
 
-## Descripcion general
+## Que es
 
-Este proyecto automatiza el monitoreo de precios de los modelos de la marca **Italika**. El sistema scrapea periodicamente el sitio web oficial de Italika para extraer informacion de cada modelo disponible y registrar sus precios, permitiendo detectar cambios a lo largo del tiempo y construir un historial de precios.
+Sistema de seguimiento de precios de catalogos de marcas de motos y scooters. Scrapea los sitios web oficiales de cada marca usando Firecrawl Change Tracking (modo git-diff), cruza los precios obtenidos contra el inventario interno del marketplace (Google Sheets) y exporta un archivo CSV con la comparacion de precios por modelo.
 
----
+Esta disenado para soportar multiples marcas. Actualmente opera con Italika y Bajaj. Cada marca tiene su propio modulo de parseo y su archivo de mapeo de nombres para resolver discrepancias entre los nombres del sitio web y los del inventario interno.
 
-## Objetivo
+## Estado (2026-04-08)
 
-Rastrear de forma sistematica los precios publicados en el sitio web de Italika por modelo, de modo que se pueda:
+### Completado
+- Scraping de precios con Firecrawl Change Tracking para Italika y Bajaj
+- Modulo de descubrimiento y filtrado de URLs por marca
+- Pipeline de comparacion de precios contra inventario
+- Limpieza y mapeo de nombres de modelo (JSON por marca/pais)
+- Exportacion de resultado a CSV
 
-- Detectar cambios de precio (subidas, bajas, eliminaciones).
-- Mantener un historial con fecha y hora de cada captura.
-- Generar alertas o reportes cuando se detecten variaciones relevantes.
+### En progreso
+-
 
----
+### Por hacer
+-
 
-## Fuente de datos
+## Que hace
 
-| Campo | Detalle |
-|---|---|
-| Sitio web | [https://www.italika.mx](https://www.italika.mx) |
-| Tipo de contenido | Paginas de producto individuales por modelo |
-| Estructura esperada | Cada modelo tiene su propia URL con nombre, descripcion y precio(s) |
-| Frecuencia de scraping | A definir segun necesidad operativa (diario / semanal) |
+1. Descubre y filtra las URLs del catalogo del sitio web oficial de la marca
+2. Guarda y compara las URLs para detectar modelos nuevos o eliminados
+3. Scrapea cada URL usando Firecrawl (batch_scrape con changeTracking en modo git-diff)
+4. Extrae nombre del modelo, precio, tipo de precio, moneda, estado de cambio y timestamp previo
+5. Limpia y mapea los nombres de modelo para cruzarlos con el inventario
+6. Lee el inventario interno desde Google Sheets
+7. Hace merge entre scraping e inventario por modelo y anio
+8. Calcula la diferencia de precio aplicando el fee de Galgo configurado por marca
+9. Exporta el resultado a CSV
 
-El sitio puede requerir renderizado de JavaScript para exponer los precios, por lo que se debe evaluar si Firecrawl por si solo es suficiente o si se necesita Playwright para contenido dinamico.
+## Flujo general
 
----
+```text
+[Proceso 1 — brand_urls.ipynb]
+Sitio web de la marca → Firecrawl map → Filtro por marca → JSON brand_urls/{marca}.json
 
-## Datos a extraer
-
-Por cada modelo de Italika se deben capturar los siguientes campos:
-
-| Campo | Descripcion | Ejemplo |
-|---|---|---|
-| `model_name` | Nombre del modelo tal como aparece en la pagina | `Italika FT150` |
-| `url` | URL de la pagina del modelo | `https://www.italika.mx/motos/ft150` |
-| `price` | Precio de lista publicado | `25,990` |
-| `price_type` | Tipo de precio (contado, MSI, financiado, etc.) | `contado` |
-| `currency` | Moneda del precio | `MXN` |
-| `captured_at` | Timestamp de la captura | `2026-03-26T10:00:00` |
-
-> Si la pagina muestra multiples precios para un mismo modelo (por ejemplo, precio de contado y precio a meses), se registran todos como filas separadas vinculadas al mismo modelo y timestamp.
-
-### Nota sobre el año del modelo
-
-Italika no publica el año del modelo en su sitio web. Por convencion, se hardcodea el valor `2026` en el campo correspondiente para todos los registros scrapeados. La base de inventario interna puede contener modelos de 2024, 2025 y 2026. La logica para resolver ambiguedades por año se definira en una etapa posterior cuando el sistema este mas maduro.
-
----
-
-## Esquema de la base de inventario interna
-
-La base de inventario interna es la fuente de referencia propia de la empresa. Sus campos son independientes de los del scraping y se documentan por separado para dejar claro el origen de cada dato.
-
-| Campo | Descripcion | Ejemplo |
-|---|---|---|
-| `code` | Codigo de la publicacion | `ITA-FT150-26` |
-| `brand` | Marca | `Italika` |
-| `model` | Nombre del modelo | `FT150` |
-| `year` | Año del modelo | `2026` |
-| `price_base` | Precio base sin descuento | `27,500` |
-| `discount_amount` | Monto de descuento aplicado | `1,510` |
-| `price_net` | Precio neto (`price_base - discount_amount`) | `25,990` |
-
----
-
-## Merge entre scraping e inventario interno
-
-### Objetivo del merge
-
-Despues de cada ejecucion del scraper, los precios obtenidos de Italika se cruzan con la base de inventario interna. El objetivo es habilitar comparaciones directas como:
-
-- "El precio publicado en Italika es distinto al precio neto de nuestro inventario."
-- "El modelo aparece en Italika pero no existe en nuestro inventario."
-- "El modelo existe en nuestro inventario pero ya no aparece en el sitio de Italika."
-
-### Mapeo de columnas antes del merge
-
-Los nombres de los campos del scraping no coinciden necesariamente con los de la base de inventario interna. Antes de realizar el merge se aplica un paso de mapeo para unificar los nombres de columnas. Ejemplo de mapeo:
-
-| Campo en scraping | Campo en inventario interno |
-|---|---|
-| `model_name` | `model` |
-| `price` | `price_net` |
-| `captured_at` | _(sin equivalente directo — se conserva como metadato)_ |
-
-El mapeo exacto se define en el modulo de transformacion de datos (`src/data/`).
-
-### Clave de union
-
-El merge se realiza por modelo y año. Dado que el año se hardcodea como `2026` en el scraping, la clave efectiva de union es `(model, year)`.
-
-### Resultado del merge
-
-El dataset resultante combina los campos de ambas fuentes y permite calcular diferencias de precio, por ejemplo:
-
-```
-price_diff = price (scraping) - price_net (inventario)
+[Proceso 2 — tracking_prices.ipynb]
+JSON brand_urls/{marca}.json → Firecrawl batch_scrape (changeTracking) → df_scraped
+                                                                              ↓
+Google Sheets [MKP] Precios → df_inventory (filtrado por marca) → Merge (modelo + anio)
+                                                                              ↓
+                                                          build_price_comparison → CSV
 ```
 
-Los registros sin correspondencia en alguno de los dos lados se identifican para analisis posterior (modelo nuevo, modelo descontinuado, etc.).
-
----
-
-## Stack tecnologico
-
-### Scraping
-
-Se evaluan dos alternativas principales, que pueden usarse de forma combinada:
-
-| Herramienta | Uso previsto | Notas |
-|---|---|---|
-| **Firecrawl** | Extraccion rapida de contenido HTML/Markdown estructurado | Preferido para paginas estaticas o con contenido expuesto en el HTML inicial |
-| **Playwright** | Automatizacion de navegador para contenido dinamico (JavaScript) | Necesario si los precios se cargan via JS asincronico |
-| Combinacion | Firecrawl para descubrimiento de URLs + Playwright para scraping detallado | Estrategia mas robusta si hay contenido mixto |
-
-### Lenguaje y dependencias
-
-| Componente | Tecnologia |
-|---|---|
-| Lenguaje principal | Python 3.x |
-| Entorno virtual | `venv` (directorio `venv/` en la raiz del proyecto) |
-| Configuracion de entorno | Variables de entorno via `.env` (basado en `env_example`) |
-| Notebooks de analisis | Jupyter (directorio `notebooks/`) |
-
-### Almacenamiento (a definir)
-
-| Opcion | Descripcion |
-|---|---|
-| Base de datos local | SQLite o PostgreSQL via conectores en `src/sources/database/` |
-| Google Sheets | Integracion disponible en `src/sources/sheets/` |
-| Archivos planos | CSV / JSON como salida intermedia desde `scripts/` |
-
----
-
-## Estructura del proyecto
+## Arquitectura
 
 ```
 tracking_prices_changes/
-├── context/                    # Documentacion de contexto del proyecto
-│   └── PROJECT_CONTEXT.md
-├── notebooks/                  # Jupyter notebooks para exploracion y analisis
-├── scripts/                    # Scripts standalone ejecutables directamente
+├── notebooks/
+│   ├── brand_urls.ipynb           # Proceso 1: descubrimiento y guardado de URLs
+│   └── tracking_prices.ipynb      # Proceso 2: scraping y comparacion de precios
 ├── src/
-│   ├── config/                 # Archivos de configuracion (URLs base, parametros)
-│   ├── core/                   # Logica de negocio principal
-│   │   └── scraper/            # Modulo de scraping (Firecrawl / Playwright)
-│   ├── data/                   # Procesamiento, limpieza y transformacion de datos
+│   ├── config/
+│   │   ├── settings.py            # Rutas base y COUNTRY
+│   │   └── brand_configs.py       # BRAND_FEES: fee de Galgo por marca
+│   ├── core/
+│   │   ├── scraper/
+│   │   │   └── app.py             # ScrapingUtils: descubre URLs con Firecrawl map
+│   │   ├── urls_tracking/
+│   │   │   └── urls_tracking.py   # Filtros de URLs por marca y compare_urls
+│   │   ├── price_tracking/
+│   │   │   ├── price_tracking.py  # run_price_tracking: batch_scrape + changeTracking
+│   │   │   ├── utils.py           # Parseo de precios, nombres de modelo y anio
+│   │   │   └── brands/
+│   │   │       ├── italika.py     # Parseo especifico para Italika
+│   │   │       └── bajaj.py       # Parseo especifico para Bajaj
+│   │   └── italika_pipeline.py    # build_price_comparison: merge + fee + price_diff
+│   ├── data/
+│   │   └── json/
+│   │       ├── brand_urls/        # URLs guardadas por marca (italika.json, bajaj.json)
+│   │       └── replace_name/MX/  # Mapeo de nombres por marca ({marca}_mapeo_nombres.json)
 │   ├── sources/
-│   │   ├── database/           # Conectores y modelos de base de datos
-│   │   └── sheets/             # Integracion con Google Sheets / Excel
-│   └── utils/                  # Funciones utilitarias compartidas
-├── trash/                      # Archivos temporales o experimentos descartados
-├── venv/                       # Entorno virtual de Python (no versionado)
-├── .gitignore
-└── env_example                 # Plantilla de variables de entorno requeridas
+│   │   └── sheets/
+│   │       ├── client.py          # Autenticacion con Google Sheets
+│   │       └── reader.py          # Lectura y escritura de hojas
+│   └── utils/
+│       ├── clean_model_name.py    # Limpia nombres: elimina marca, colores, conectores
+│       └── replace_model_name.py  # Carga y aplica el mapeo JSON de nombres de modelo
+├── context/
+├── env_example
+└── .gitignore
 ```
 
----
-
-## Outputs esperados
-
-### Registro historico de precios
-
-Cada ejecucion del scraper debe producir un conjunto de registros que incluyan el modelo, el precio capturado y el timestamp. Esto permite:
-
-- Comparar el precio actual con el precio anterior para detectar cambios.
-- Consultar el historial completo de un modelo especifico.
-- Generar reportes de variacion de precios en un rango de fechas.
-
-### Deteccion de cambios
-
-El sistema debe ser capaz de identificar y reportar:
-
-- **Subida de precio**: el precio actual es mayor al ultimo registrado.
-- **Bajada de precio**: el precio actual es menor al ultimo registrado.
-- **Modelo nuevo**: aparece un modelo que no existia en la captura anterior.
-- **Modelo eliminado**: un modelo que existia ya no aparece en el sitio.
-
-### Formatos de salida previstos
-
-| Formato | Uso |
+| Archivo | Funcion |
 |---|---|
-| Base de datos | Almacenamiento principal con historial completo |
-| Google Sheets | Reporte compartido para consulta no tecnica |
-| CSV / JSON | Exportacion para analisis ad hoc en notebooks |
+| `src/core/price_tracking/price_tracking.py` | Ejecuta el scraping y construye las filas de resultado por URL |
+| `src/core/italika_pipeline.py` | Merge scraping-inventario, aplica fee de Galgo, calcula price_diff |
+| `src/core/urls_tracking/urls_tracking.py` | Filtros de URLs por marca y deteccion de URLs nuevas |
+| `src/data/json/replace_name/MX/` | JSONs de mapeo de nombres para resolver discrepancias entre scraping e inventario |
 
----
+## Output
 
-## Variables de entorno requeridas
+Archivo CSV guardado en el directorio de trabajo del notebook (`notebooks/`) con el nombre `{DDMMYYYY}-{brand_slug}_precios.csv`.
 
-A documentar en `env_example` conforme se integren los servicios. Se anticipan las siguientes:
+Columnas del CSV:
 
+| Columna | Descripcion |
+|---|---|
+| `captured_at` | Timestamp UTC de la captura actual |
+| `previous_scrape_at` | Timestamp del scrape anterior (segun Firecrawl) |
+| `code` | Codigo del producto en el inventario interno |
+| `brand` | Marca |
+| `model` | Nombre del modelo en el inventario |
+| `model_name` | Nombre del modelo scrapeado |
+| `year` | Anio en el inventario |
+| `year_scraped` | Anio extraido del scraping |
+| `status` | Estado en el marketplace (available / no_stock) |
+| `price_scraped` | Precio publicado en el sitio de la marca |
+| `price_scraped_with_galgo_fee` | Precio scrapeado + fee de Galgo de la marca |
+| `price_base` | Precio base en el inventario |
+| `discount_amount` | Descuento en el inventario |
+| `price_net` | Precio neto del inventario (price_base - discount_amount) |
+| `price_diff` | Diferencia: price_scraped_with_galgo_fee - price_net |
+| `price_type` | Tipo de precio scrapeado (contado / oferta / etc.) |
+| `currency` | Moneda (MXN) |
+| `change_status` | Estado de cambio segun Firecrawl (same / new / changed / removed) |
+| `visibility` | Visibilidad de la pagina segun Firecrawl |
+| `url_scraped` | URL del producto en el sitio de la marca |
+| `marketplace_url` | URL del producto en galgo.com |
+
+## Stack tecnico
+
+| Tecnologia | Uso |
+|---|---|
+| Python 3.x | Lenguaje principal |
+| Jupyter Notebooks | Punto de entrada para ejecucion |
+| Firecrawl | Scraping y change tracking de sitios web |
+| pandas | Transformacion de datos y merge |
+| gspread / gspread-dataframe | Lectura y escritura en Google Sheets |
+| python-dotenv | Carga de variables de entorno desde `.env` |
+
+## Requisitos
+
+```env
+FIRECRAWL_API_KEY=<api key de Firecrawl>
 ```
-# Firecrawl
-FIRECRAWL_API_KEY=
 
-# Google Sheets (si aplica)
-GOOGLE_SHEETS_CREDENTIALS_PATH=
-GOOGLE_SHEETS_SPREADSHEET_ID=
-
-# Base de datos (si aplica)
-DATABASE_URL=
-```
-
----
-
-## Estado del proyecto
-
-- [x] Estructura de carpetas creada
-- [x] Esquema de la base de inventario interna definido
-- [x] Flujo de merge entre scraping e inventario documentado
-- [ ] Definicion de herramienta de scraping (Firecrawl vs Playwright)
-- [ ] Implementacion del scraper de modelos Italika
-- [ ] Modelo de datos y esquema de almacenamiento
-- [ ] Implementacion del mapeo de columnas y logica de merge
-- [ ] Logica de deteccion de cambios de precio (scraping vs inventario)
-- [ ] Resolucion de ambiguedad por año cuando el sistema este maduro
-- [ ] Integracion con almacenamiento (base de datos / Google Sheets)
-- [ ] Programacion de ejecucion periodica
+Credenciales de Google Sheets: archivo `src/config/key-google-sheets.json` (cuenta de servicio). No se versiona.
