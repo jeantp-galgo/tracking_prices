@@ -6,21 +6,6 @@ Sistema de seguimiento de precios de catalogos de marcas de motos y scooters. Sc
 
 Esta disenado para soportar multiples marcas. Actualmente opera con Italika y Bajaj. Cada marca tiene su propio modulo de parseo y su archivo de mapeo de nombres para resolver discrepancias entre los nombres del sitio web y los del inventario interno.
 
-## Estado (2026-04-08)
-
-### Completado
-- Scraping de precios con Firecrawl Change Tracking para Italika y Bajaj
-- Modulo de descubrimiento y filtrado de URLs por marca
-- Pipeline de comparacion de precios contra inventario
-- Limpieza y mapeo de nombres de modelo (JSON por marca/pais)
-- Exportacion de resultado a CSV
-
-### En progreso
--
-
-### Por hacer
--
-
 ## Que hace
 
 1. Descubre y filtra las URLs del catalogo del sitio web oficial de la marca
@@ -29,9 +14,10 @@ Esta disenado para soportar multiples marcas. Actualmente opera con Italika y Ba
 4. Extrae nombre del modelo, precio, tipo de precio, moneda, estado de cambio y timestamp previo
 5. Limpia y mapea los nombres de modelo para cruzarlos con el inventario
 6. Lee el inventario interno desde Google Sheets
-7. Hace merge entre scraping e inventario por modelo y anio
+7. Hace merge entre scraping e inventario por modelo y anio, con fallback al anio mas reciente disponible si no hay match exacto
 8. Calcula la diferencia de precio aplicando el fee de Galgo configurado por marca
-9. Exporta el resultado a CSV
+9. Exporta el resultado a Google Sheets en la hoja correspondiente a la marca
+10. Registra en un log historico CSV los modelos con diferencia de precio distinta de cero
 
 ## Flujo general
 
@@ -42,9 +28,16 @@ Sitio web de la marca → Firecrawl map → Filtro por marca → JSON brand_urls
 [Proceso 2 — tracking_prices.ipynb]
 JSON brand_urls/{marca}.json → Firecrawl batch_scrape (changeTracking) → df_scraped
                                                                               ↓
-Google Sheets [MKP] Precios → df_inventory (filtrado por marca) → Merge (modelo + anio)
-                                                                              ↓
-                                                          build_price_comparison → CSV
+Google Sheets [MKP] Precios → df_inventory (filtrado por marca)
+                                                   ↓
+                               Merge exacto (modelo + anio) → year_match_type = "exact"
+                               Fallback (modelo, anio mas reciente) → year_match_type = "fallback_year"
+                                                   ↓
+                                     build_price_comparison (aplica fee, calcula price_diff)
+                                                   ↓
+                      Google Sheets [Scraping - MX] Comparativa de precios → hoja {BRAND_NAME}
+                                                   ↓
+                                     data/logs/price_diff_log.csv (solo filas con price_diff != 0)
 ```
 
 ## Arquitectura
@@ -80,7 +73,8 @@ tracking_prices_changes/
 │   │       └── reader.py          # Lectura y escritura de hojas
 │   └── utils/
 │       ├── clean_model_name.py    # Limpia nombres: elimina marca, colores, conectores
-│       └── replace_model_name.py  # Carga y aplica el mapeo JSON de nombres de modelo
+│       ├── replace_model_name.py  # Carga y aplica el mapeo JSON de nombres de modelo
+│       └── price_diff_log.py      # Registra filas con price_diff != 0 en log historico CSV
 ├── context/
 ├── env_example
 └── .gitignore
@@ -95,9 +89,11 @@ tracking_prices_changes/
 
 ## Output
 
-Archivo CSV guardado en el directorio de trabajo del notebook (`notebooks/`) con el nombre `{DDMMYYYY}-{brand_slug}_precios.csv`.
+### Hoja de Google Sheets (resultado principal)
 
-Columnas del CSV:
+El resultado se escribe en el archivo de Google Sheets **`[Scraping - MX] Comparativa de precios`**, en una hoja cuyo nombre es el `BRAND_NAME` seleccionado (ej. `Italika`, `Bajaj`). Cada ejecucion reemplaza todos los datos de esa hoja (`clear_data=True`).
+
+Columnas del output:
 
 | Columna | Descripcion |
 |---|---|
@@ -120,8 +116,13 @@ Columnas del CSV:
 | `currency` | Moneda (MXN) |
 | `change_status` | Estado de cambio segun Firecrawl (same / new / changed / removed) |
 | `visibility` | Visibilidad de la pagina segun Firecrawl |
+| `year_match_type` | Tipo de match en el merge: `exact` (modelo + anio) o `fallback_year` (modelo con anio mas reciente disponible) |
 | `url_scraped` | URL del producto en el sitio de la marca |
 | `marketplace_url` | URL del producto en galgo.com |
+
+### Log historico de diferencias (CSV)
+
+Las filas donde `price_diff != 0` se acumulan en `data/logs/price_diff_log.csv` con columnas: `run_date`, `captured_at`, `brand`, `code`, `model`, `year`, `price_scraped`, `price_scraped_with_galgo_fee`, `price_net`, `price_diff`.
 
 ## Stack tecnico
 
