@@ -8,6 +8,7 @@ _FINAL_COLUMNS = [
     "price_scraped", "price_scraped_with_galgo_fee", "price_base", "discount_amount",
     "price_net", "price_diff",
     "price_type", "currency", "change_status", "visibility",
+    "year_match_type",
     "url_scraped", "marketplace_url",
 ]
 
@@ -38,14 +39,47 @@ def build_price_comparison(
     df_inv["year"] = pd.to_numeric(df_inv["year"], errors="coerce")
     df["year_scraped"] = pd.to_numeric(df.get("year_scraped"), errors="coerce")
 
-    df_merged = pd.merge(
+    df_exact = pd.merge(
         df_inv,
         df,
         left_on=["model_lower", "year"],
         right_on=["model_mapped", "year_scraped"],
-        how="outer",
+        how="inner",
+    )
+    df_exact["year_match_type"] = "exact"
+
+    df_inv_match_check = pd.merge(
+        df_inv,
+        df[["model_mapped", "year_scraped"]],
+        left_on=["model_lower", "year"],
+        right_on=["model_mapped", "year_scraped"],
+        how="left",
         indicator=True,
     )
+    df_unmatched = df_inv_match_check[df_inv_match_check["_merge"] == "left_only"][
+        df_inv.columns
+    ].copy()
+
+    df_scraped_latest = (
+        df.sort_values(
+            ["model_mapped", "year_scraped"],
+            ascending=[True, False],
+            na_position="last",
+        )
+        .drop_duplicates(subset=["model_mapped"], keep="first")
+        .copy()
+    )
+
+    df_fallback = pd.merge(
+        df_unmatched,
+        df_scraped_latest,
+        left_on=["model_lower"],
+        right_on=["model_mapped"],
+        how="left",
+    )
+    df_fallback["year_match_type"] = "fallback_year"
+
+    df_merged = pd.concat([df_exact, df_fallback], ignore_index=True, sort=False)
 
     df_merged.rename(
         columns={"price": "price_scraped", "url": "url_scraped"},
@@ -56,17 +90,22 @@ def build_price_comparison(
         lambda code: f"https://www.galgo.com/{country.lower()}/motos/{code}"
     )
 
-    price_clean = (
+    price_scraped_numeric = (
         df_merged["price_scraped"]
         .astype(str)
         .str.replace(",", "", regex=False)
+        .pipe(pd.to_numeric, errors="coerce")
     )
     df_merged["price_scraped_with_galgo_fee"] = (
-        pd.to_numeric(price_clean, errors="coerce") + galgo_fee
+        price_scraped_numeric + galgo_fee
     )
 
     df_merged["price_diff"] = (
         df_merged["price_scraped_with_galgo_fee"] - df_merged["price_net"]
+    )
+
+    df_merged["price_diff_without_galgo_fee"] = (
+        price_scraped_numeric - df_merged["price_net"]
     )
 
     existing_cols = [c for c in _FINAL_COLUMNS if c in df_merged.columns]
