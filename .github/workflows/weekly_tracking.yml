@@ -1,0 +1,104 @@
+name: Weekly Price Tracking
+
+on:
+  schedule:
+    # PRUEBAS: cada 10 minutos
+    # Producción: martes 15:00 UTC = 10:00 hora Colombia (UTC-5)
+    # - cron: "0 15 * * 2"
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      brands:
+        description: "Marcas a procesar (ej: 'Bajaj Italika'). Vacío = todas."
+        required: false
+        default: ""
+      skip_step1:
+        description: "Omitir extracción de URLs (usar JSONs existentes)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  track-prices:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Escribir credenciales de Google Sheets
+        run: |
+          echo "${{ secrets.GOOGLE_SHEETS_KEY_BASE64 }}" | base64 -d \
+            > src/config/key-google-sheets.json
+
+      - name: Ejecutar pipeline
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.brands }}" ]; then
+            ARGS="--brands ${{ github.event.inputs.brands }}"
+          fi
+          if [ "${{ github.event.inputs.skip_step1 }}" = "true" ]; then
+            ARGS="$ARGS --skip-step1"
+          fi
+          python -m pipeline.run_pipeline $ARGS
+
+      - name: Commitear cambios en brand_urls y logs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add src/data/json/brand_urls/
+          git add data/logs/price_diff_log.csv || true
+          git diff --staged --quiet || \
+            git commit -m "chore: actualizar URLs y log de precios [skip ci]"
+          git push
+
+      - name: Email — ejecución exitosa
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          to: ${{ secrets.GMAIL_USERNAME }}
+          from: GitHub Actions
+          subject: "✅ Price Tracking completado — ${{ github.run_id }}"
+          body: |
+            El pipeline de tracking de precios se ejecutó correctamente.
+
+            Fecha: ${{ github.run_started_at }}
+            Workflow: ${{ github.workflow }}
+            Rama: ${{ github.ref_name }}
+
+            Ver detalles: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Email — ejecución fallida
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          to: ${{ secrets.GMAIL_USERNAME }}
+          from: GitHub Actions
+          subject: "❌ Price Tracking falló — ${{ github.run_id }}"
+          body: |
+            El pipeline de tracking de precios falló.
+
+            Fecha: ${{ github.run_started_at }}
+            Workflow: ${{ github.workflow }}
+            Rama: ${{ github.ref_name }}
+
+            Ver logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
