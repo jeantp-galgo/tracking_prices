@@ -1,6 +1,9 @@
 import os
+from dotenv import load_dotenv
 from firecrawl import Firecrawl
 from src.core.scraper.utils import get_urls_from_firecrawl_map
+
+load_dotenv()
 
 class ScrapingUtils:
     def __init__(self):
