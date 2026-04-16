@@ -22,6 +22,17 @@ def _build_formats(tag: str | None = None) -> list:
     return ["markdown", ct]
 
 
+def _get_ct_field(ct: Any, *keys: str) -> Any:
+    """Obtiene un campo de changeTracking, que puede llegar como dict o como objeto."""
+    if ct is None:
+        return None
+    for key in keys:
+        val = ct.get(key) if isinstance(ct, dict) else getattr(ct, key, None)
+        if val is not None:
+            return val
+    return None
+
+
 def _build_row(url: str, brand_name: str, page_data: Any, captured_at: str) -> dict[str, Any]:
     """Construye una fila con las columnas del resultado."""
     brand = _BRAND_HANDLERS[brand_name.strip().lower()]
@@ -37,9 +48,9 @@ def _build_row(url: str, brand_name: str, page_data: Any, captured_at: str) -> d
         "price_type": brand.PRICE_TYPE,
         "currency": brand.CURRENCY,
         "captured_at": captured_at,
-        "change_status": getattr(ct, "changeStatus", "") or getattr(ct, "change_status", "") or "",
-        "previous_scrape_at": getattr(ct, "previousScrapeAt", "") or getattr(ct, "previous_scrape_at", "") or "",
-        "visibility": getattr(ct, "visibility", "") or "",
+        "change_status": _get_ct_field(ct, "changeStatus", "change_status") or "",
+        "previous_scrape_at": _get_ct_field(ct, "previousScrapeAt", "previous_scrape_at") or "",
+        "visibility": _get_ct_field(ct, "visibility") or "",
     }
 
 
