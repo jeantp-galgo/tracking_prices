@@ -26,6 +26,7 @@
 - [ ] CF Moto (no solicitado pero hace parte de la familia CF)
 
 
+- [ ] Scraping desde 3 fuentes
 ## ✅ Completado
 
 - [ ] Consolidar scraping en un solo archivo: Outputs de marcas ahora quedará en hojas individuales en un mismo archivo
