@@ -85,6 +85,24 @@ BRAND_NAME = "Bajaj"  # Opciones actuales: "Bajaj", "Italika"
 
 ---
 
+## Ejecucion automatizada (GitHub Actions)
+
+El pipeline corre automaticamente todos los dias a las 10:00 AM hora Colombia via GitHub Actions.
+
+**Archivo de workflow**: `.github/workflows/weekly_tracking.yml`
+
+Para disparar manualmente desde GitHub:
+
+1. Ir a **Actions → Daily Price Tracking → Run workflow**
+2. Opcional: especificar marcas en el campo `brands` (ej. `Bajaj Italika`)
+3. Opcional: activar `skip_step1` para omitir la extraccion de URLs y ahorrar creditos de Firecrawl
+
+El pipeline automatico ejecuta siempre todas las marcas con Step 1 + Step 2. Al finalizar, hace commit automatico de los JSONs de URLs y del log de diferencias de precios.
+
+Ver detalle completo de frecuencia, secrets y notificaciones en `context/UPDATE_SCHEDULE.md`.
+
+---
+
 ## Notas
 
 | Situacion | Comportamiento | Solucion |
