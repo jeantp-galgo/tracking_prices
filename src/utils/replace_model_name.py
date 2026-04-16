@@ -1,8 +1,11 @@
 import json
+import logging
 import os
 import re
 from typing import Dict, Optional
 from src.config.settings import SRC_DIR
+
+log = logging.getLogger(__name__)
 
 def normalize_brand_name(marca: str) -> str:
     """Normaliza el nombre de la marca para el nombre del archivo."""
@@ -43,11 +46,11 @@ def load_mapping_file(country: str, marca: str) -> Dict[str, str]:
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             mapeo_nombres = json.load(f)
-            print(f"Archivo de mapeo cargado correctamente: {filename}")
+            log.debug(f"Archivo de mapeo cargado correctamente: {filename}")
             return mapeo_nombres
     except FileNotFoundError:
         marca_normalizada = normalize_brand_name(marca)
-        print(f"ERROR: El archivo de mapeo: {marca_normalizada}_mapeo_nombres.json no se encuentra. Creando archivo vacío.")
+        log.warning(f"Archivo de mapeo {marca_normalizada}_mapeo_nombres.json no encontrado. Creando archivo vacío.")
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump({}, f, ensure_ascii=False, indent=4)
