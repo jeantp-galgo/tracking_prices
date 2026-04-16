@@ -9,3 +9,5 @@ outputs/
 key-google-sheets.json
 trash/
 test/
+.history/
+.claude/
