@@ -54,6 +54,8 @@ jobs:
           python -m pipeline.run_pipeline $ARGS
 
       - name: Commitear cambios en brand_urls y logs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -61,7 +63,7 @@ jobs:
           git add data/logs/price_diff_log.csv || true
           git diff --staged --quiet || \
             git commit -m "chore: actualizar URLs y log de precios [skip ci]"
-          git push
+          git push origin main
 
       - name: Email — ejecución exitosa
         if: success()
