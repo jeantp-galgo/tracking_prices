@@ -1,11 +1,9 @@
-name: Weekly Price Tracking
+name: Daily Price Tracking
 
 on:
   schedule:
-    # PRUEBAS: cada 10 minutos
-    # Producción: martes 15:00 UTC = 10:00 hora Colombia (UTC-5)
-    # - cron: "0 15 * * 2"
-    - cron: "*/10 * * * *"
+    # Todos los días a las 10:00 AM hora Colombia (UTC-5)
+    - cron: "0 15 * * *"
   workflow_dispatch:
     inputs:
       brands:
