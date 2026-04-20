@@ -16,7 +16,16 @@ _LOG_COLUMNS = [
 ]
 
 
-def append_price_diff_log(df_final: pd.DataFrame, log_path: str | Path) -> int:
+def get_price_diffs(df_final: pd.DataFrame) -> pd.DataFrame:
+    """Filtra filas con diferencia de precio real y match de inventario."""
+    return df_final[
+        df_final["code"].notna()
+        & df_final["price_diff"].notna()
+        & (df_final["price_diff"] != 0)
+    ].copy()
+
+
+def append_price_diff_log(df_final: pd.DataFrame, log_path: str | Path) -> pd.DataFrame:
     """Agrega al log histórico CSV las filas con diferencia de precio real.
 
     Solo procesa filas que hicieron match con inventario (code no nulo)
@@ -27,19 +36,15 @@ def append_price_diff_log(df_final: pd.DataFrame, log_path: str | Path) -> int:
         log_path: Ruta al CSV acumulativo. Se crea si no existe.
 
     Returns:
-        Número de filas agregadas en esta ejecución.
+        DataFrame con las filas agregadas en esta ejecución.
     """
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    df_diffs = df_final[
-        df_final["code"].notna()
-        & df_final["price_diff"].notna()
-        & (df_final["price_diff"] != 0)
-    ].copy()
+    df_diffs = get_price_diffs(df_final)
 
     if df_diffs.empty:
-        return 0
+        return df_diffs
 
     df_diffs["run_date"] = date.today().isoformat()
 
@@ -49,4 +54,4 @@ def append_price_diff_log(df_final: pd.DataFrame, log_path: str | Path) -> int:
     write_header = not log_path.exists()
     df_to_log.to_csv(log_path, mode="a", index=False, header=write_header)
 
-    return len(df_to_log)
+    return df_to_log
