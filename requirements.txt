@@ -56,6 +56,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 pyzmq==27.1.0
 RapidFuzz==3.14.5
+resend
 requests==2.33.0
 requests-oauthlib==2.0.0
 rsa==4.9.1
