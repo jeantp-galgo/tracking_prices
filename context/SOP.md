@@ -2,43 +2,52 @@
 
 ## Proposito
 
-Consultar y comparar los precios publicados en el sitio web oficial de una marca de motos contra el inventario interno del marketplace. El resultado se escribe en Google Sheets (una hoja por marca) con la diferencia de precio por modelo, el tipo de match del merge y el estado de cambio detectado por Firecrawl.
+Ejecutar el pipeline de comparacion de precios entre los sitios web oficiales de las marcas (Italika, Bajaj) y el inventario interno del marketplace. El resultado se escribe en Google Sheets con la diferencia de precio por modelo y se envia un email con los cambios detectados.
 
 ## Arquitectura
 
 ```text
 tracking_prices_changes/
+├── pipeline/
+│   └── run_pipeline.py              # Punto de entrada del pipeline automatizado
 ├── notebooks/
-│   ├── brand_urls.ipynb           # Proceso 1: descubrimiento y guardado de URLs
-│   └── tracking_prices.ipynb      # Proceso 2: scraping y comparacion de precios
+│   ├── brand_urls.ipynb             # Auxiliar: descubrimiento y revision de URLs
+│   └── tracking_prices.ipynb        # Auxiliar: scraping y comparacion ad hoc
 ├── src/
 │   ├── config/
-│   │   ├── settings.py            # Rutas base y COUNTRY
-│   │   └── brand_configs.py       # BRAND_FEES: fee de Galgo por marca
+│   │   ├── settings.py              # APP_ENV, rutas base, constantes de billing Firecrawl
+│   │   └── brand_configs.py         # BRANDS, fees de Galgo, nombres de hojas GSheets
 │   ├── core/
+│   │   ├── pipeline/
+│   │   │   ├── preflight.py         # Validacion de entorno antes de ejecutar
+│   │   │   ├── step1_fetch_urls.py  # Step 1: descubrimiento de URLs via Firecrawl map
+│   │   │   └── step2_track_prices.py # Step 2: scraping de precios y merge con inventario
 │   │   ├── scraper/
-│   │   │   └── app.py             # ScrapingUtils: descubre URLs con Firecrawl map
+│   │   │   └── app.py               # ScrapingUtils: descubre URLs con Firecrawl map
 │   │   ├── urls_tracking/
-│   │   │   └── urls_tracking.py   # Filtros de URLs por marca y deteccion de cambios
+│   │   │   └── urls_tracking.py     # Filtros de URLs por marca y deteccion de cambios
 │   │   ├── price_tracking/
-│   │   │   ├── price_tracking.py  # run_price_tracking: batch_scrape + changeTracking
-│   │   │   ├── utils.py           # Parseo de precios, nombres de modelo y anio
+│   │   │   ├── price_tracking.py    # run_price_tracking: batch_scrape + changeTracking
+│   │   │   ├── utils.py             # Parseo de precios, nombres de modelo y anio
 │   │   │   └── brands/
-│   │   │       ├── italika.py     # Parseo especifico para Italika
-│   │   │       └── bajaj.py       # Parseo especifico para Bajaj
-│   │   └── italika_pipeline.py    # build_price_comparison: merge + fee + price_diff
+│   │   │       ├── italika.py       # Parseo especifico para Italika
+│   │   │       └── bajaj.py         # Parseo especifico para Bajaj
+│   │   └── italika_pipeline.py      # build_price_comparison: merge + fee + price_diff
+│   ├── notifications/
+│   │   └── email_notifier.py        # Notificacion por email via Resend API
 │   ├── data/
 │   │   └── json/
-│   │       ├── brand_urls/        # URLs guardadas por marca (italika.json, bajaj.json)
-│   │       └── replace_name/MX/  # Mapeo de nombres por marca ({marca}_mapeo_nombres.json)
+│   │       ├── brand_urls/          # URLs guardadas por marca (italika.json, bajaj.json)
+│   │       └── replace_name/MX/    # Mapeo de nombres por marca ({marca}_mapeo_nombres.json)
 │   ├── sources/
 │   │   └── sheets/
-│   │       ├── client.py          # Autenticacion con Google Sheets
-│   │       └── reader.py          # Lectura y escritura de hojas
+│   │       ├── client.py            # Autenticacion con Google Sheets
+│   │       └── reader.py            # Lectura y escritura de hojas
 │   └── utils/
-│       ├── clean_model_name.py    # Limpia nombres: elimina marca, colores, conectores
-│       ├── replace_model_name.py  # Carga y aplica el mapeo JSON de nombres de modelo
-│       └── price_diff_log.py      # Registra filas con price_diff != 0 en log historico CSV
+│       ├── clean_model_name.py      # Limpia nombres: elimina marca, colores, conectores
+│       ├── replace_model_name.py    # Carga y aplica el mapeo JSON de nombres de modelo
+│       ├── price_diff_log.py        # Registra filas con price_diff != 0 en log historico CSV
+│       └── scraping_cost_log.py     # Registra creditos Firecrawl usados en hoja GSheets
 ├── context/
 ├── env_example
 └── .gitignore
@@ -46,20 +55,22 @@ tracking_prices_changes/
 
 | Archivo clave | Funcion |
 |---|---|
+| `pipeline/run_pipeline.py` | Orquesta el pipeline completo: preflight, step1, step2, costos, email |
+| `src/core/pipeline/preflight.py` | Valida entorno y acceso a Google Sheets antes de gastar creditos |
 | `src/core/price_tracking/price_tracking.py` | Ejecuta el scraping y construye las filas de resultado por URL |
 | `src/core/italika_pipeline.py` | Merge scraping-inventario, aplica fee de Galgo, calcula price_diff |
-| `src/core/urls_tracking/urls_tracking.py` | Filtros de URLs por marca y deteccion de URLs nuevas |
-| `src/data/json/replace_name/MX/` | JSONs de mapeo de nombres para resolver discrepancias scraping-inventario |
+| `src/notifications/email_notifier.py` | Envia email con diferencias de precio via Resend API |
+| `src/utils/scraping_cost_log.py` | Escribe costos de Firecrawl en la hoja `scraping_costs` de GSheets |
 
 ## Stack tecnico
 
 | Tecnologia | Uso |
 |---|---|
 | Python 3.x | Lenguaje principal |
-| Jupyter Notebooks | Punto de entrada para ejecucion manual |
 | Firecrawl | Scraping y change tracking de sitios web |
 | pandas | Transformacion de datos y merge |
 | gspread / gspread-dataframe | Lectura y escritura en Google Sheets |
+| resend | Envio de emails de diferencias de precio |
 | python-dotenv | Carga de variables de entorno desde `.env` |
 | GitHub Actions | Ejecucion automatizada diaria |
 
@@ -76,7 +87,12 @@ cp env_example .env
 Editar `.env` y completar:
 
 ```env
+APP_ENV=master                           # "master" para produccion, "development" para pruebas
 FIRECRAWL_API_KEY=<api key de Firecrawl>
+FIRECRAWL_API_KEY_DEV=<api key dev>      # Solo necesario si APP_ENV=development
+RESEND_API_KEY=<api key de Resend>
+NOTIFICATION_EMAIL_TO=<email destino de alertas de precio>
+NOTIFICATION_EMAIL_FROM=<email remitente> # Opcional; default: onboarding@resend.dev
 ```
 
 Colocar el archivo de credenciales de Google Sheets en:
@@ -97,11 +113,42 @@ pip install -r requirements.txt
 
 ---
 
-## Proceso 1: Descubrimiento de URLs
+## Ejecucion del pipeline
+
+El punto de entrada principal es `pipeline/run_pipeline.py`. Ejecuta las 5 fases en orden: preflight, step1 (URLs), step2 (scraping + merge), registro de costos en GSheets y email de diferencias.
+
+### Comandos
+
+```bash
+# Todas las marcas, con descubrimiento de URLs (step1 + step2)
+python -m pipeline.run_pipeline
+
+# Solo marcas especificas
+python -m pipeline.run_pipeline --brands Bajaj
+python -m pipeline.run_pipeline --brands "Bajaj Italika"
+
+# Omitir step1 (usar URLs existentes en JSON, ahorra creditos de Firecrawl)
+python -m pipeline.run_pipeline --skip-step1
+```
+
+### Validacion previa (preflight)
+
+Para verificar el entorno sin ejecutar el pipeline:
+
+```bash
+python -m src.core.pipeline.preflight
+python -m src.core.pipeline.preflight --brands Bajaj
+```
+
+El preflight valida: variables de entorno requeridas, existencia de `key-google-sheets.json`, y acceso real a todas las hojas esperadas en Google Sheets. Si algo falla, reporta todos los errores juntos antes de abortar.
+
+---
+
+## Proceso auxiliar: Descubrimiento manual de URLs
 
 **Notebook**: `notebooks/brand_urls.ipynb`
 
-Ejecutar cuando se sospeche que el catalogo de la marca tiene URLs nuevas, o como paso previo si las URLs no se han actualizado recientemente.
+Util para inspeccionar que URLs se detectan para una marca o para depurar el filtro de URLs antes de correr el pipeline.
 
 1. Configurar la marca objetivo:
 
@@ -109,38 +156,15 @@ Ejecutar cuando se sospeche que el catalogo de la marca tiene URLs nuevas, o com
 BRAND = "Bajaj"  # Opciones actuales: "Bajaj", "Italika"
 ```
 
-2. Ejecutar el notebook completo.
-3. El sistema extrae todas las URLs del sitio, aplica el filtro de la marca y las compara con las guardadas en `src/data/json/brand_urls/{brand}.json`.
-4. Si hay URLs nuevas, las agrega al JSON y las imprime en pantalla.
+2. Ejecutar el notebook completo. El sistema extrae todas las URLs del sitio, aplica el filtro de la marca y las compara con las guardadas en `src/data/json/brand_urls/{brand}.json`.
 
 ---
 
-## Proceso 2: Scraping y comparacion de precios
+## Proceso auxiliar: Scraping ad hoc
 
 **Notebook**: `notebooks/tracking_prices.ipynb`
 
-1. Configurar la marca objetivo:
-
-```python
-BRAND_NAME = "Bajaj"  # Opciones actuales: "Bajaj", "Italika"
-```
-
-2. Ejecutar hasta la seccion **5. Ejecutar price tracking**. Firecrawl procesara las URLs en batch y retornara markdown y datos de changeTracking por pagina.
-
-3. La seccion **6** limpia y mapea los nombres de modelo. Si un modelo no tiene mapeo definido, se usa el nombre limpio tal como viene del scraping.
-
-4. La seccion **7** hace el merge con el inventario leido desde Google Sheets (hoja `[MKP] Precios`, worksheet `price_data_mx`), filtrado por la marca seleccionada.
-
-5. La seccion **8** construye el DataFrame final con `build_price_comparison()`, que aplica el fee de Galgo de la marca (definido en `src/config/brand_configs.py`) y calcula `price_diff`. El merge es en dos etapas:
-   - **Exacto**: cruza por `modelo + anio`. Columna `year_match_type = "exact"`.
-   - **Fallback**: para filas del inventario sin match por anio, cruza solo por modelo usando el anio scrapeado mas reciente disponible. Columna `year_match_type = "fallback_year"`.
-
-6. La seccion **10** escribe el resultado en Google Sheets:
-   - Archivo: `[Scraping - MX] Comparativa de precios`
-   - Hoja: nombre de la marca seleccionada (ej. `Italika`, `Bajaj`)
-   - Cada ejecucion reemplaza todos los datos previos de la hoja.
-
-7. La seccion **11** registra en `data/logs/price_diff_log.csv` los modelos donde `price_diff != 0`. El archivo se crea automáticamente si no existe y se acumula con cada ejecución.
+Util para ejecutar o inspeccionar el scraping de una marca de forma interactiva, sin correr el pipeline completo.
 
 ---
 
@@ -148,7 +172,7 @@ BRAND_NAME = "Bajaj"  # Opciones actuales: "Bajaj", "Italika"
 
 El pipeline corre automaticamente todos los dias a las 10:00 AM hora Colombia via GitHub Actions.
 
-**Archivo de workflow**: `.github/workflows/weekly_tracking.yml`
+**Archivo de workflow**: `.github/workflows/daily_tracking.yml`
 
 Para disparar manualmente desde GitHub:
 
@@ -156,7 +180,14 @@ Para disparar manualmente desde GitHub:
 2. Opcional: especificar marcas en el campo `brands` (ej. `Bajaj Italika`)
 3. Opcional: activar `skip_step1` para omitir la extraccion de URLs y ahorrar creditos de Firecrawl
 
-El pipeline automatico ejecuta siempre todas las marcas con Step 1 + Step 2. Al finalizar, hace commit automatico de los JSONs de URLs y del log de diferencias de precios.
+### Notificaciones del workflow
+
+Hay dos sistemas de email independientes:
+
+| Sistema | Canal | Cuando se envia |
+|---|---|---|
+| Estado del pipeline | Gmail (action-send-mail) | Siempre al terminar: exito o fallo del workflow |
+| Diferencias de precio | Resend (email_notifier.py) | Solo si hay modelos con `price_diff != 0` |
 
 Ver detalle completo de frecuencia, secrets y notificaciones en `context/UPDATE_SCHEDULE.md`.
 
@@ -172,3 +203,5 @@ Ver detalle completo de frecuencia, secrets y notificaciones en `context/UPDATE_
 | `change_status` vacio en primera ejecucion | Firecrawl no tiene scrape previo para comparar | Normal; en la segunda ejecucion ya devuelve `same` o `changed` |
 | `year_match_type = "fallback_year"` con precio en NaN | El modelo existe en el inventario pero no tiene ninguna URL scrapeada con match de nombre | Revisar mapeo de nombres o agregar la URL a `brand_urls/{marca}.json` |
 | Agregar una nueva marca | No existe modulo de parseo ni filtro de URLs | Crear `src/core/price_tracking/brands/{marca}.py`, agregar filtro en `urls_tracking.py`, fee en `brand_configs.py` y hoja en el Google Sheets de output |
+| Preflight falla con error de credenciales | `key-google-sheets.json` no encontrado o variables de entorno vacias | Verificar que el archivo existe en `src/config/` y que `.env` tiene todas las variables requeridas |
+| Email de diferencias no se envia | No habia modelos con `price_diff != 0` en la corrida | Comportamiento normal; revisar el output en GSheets para confirmar |

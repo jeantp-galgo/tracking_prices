@@ -1,20 +1,20 @@
-# PRD: Tracking de cambios de precios — Italika
+# PRD: Tracking de cambios de precios — Multi-marca
 
 ## 1. Resumen del producto
 
 ### 1.1 Titulo y version del documento
 
-- PRD: tracking_prices_changes — Monitoreo automatizado de precios Italika
-- Version: 1.0
-- Fecha: 2026-03-26
+- PRD: tracking_prices_changes — Monitoreo automatizado de precios (Italika, Bajaj)
+- Version: 2.0
+- Fecha original: 2026-03-26 | Ultima actualizacion: 2026-04-20
 
 ### 1.2 Vision general del producto
 
-Este proyecto automatiza el monitoreo de precios del catalogo de modelos publicados en el sitio web oficial de Italika (https://www.italika.mx). El sistema realiza scraping periodico para extraer el nombre, URL y precio(s) de cada modelo disponible, registrando cada captura con su timestamp correspondiente.
+Este proyecto automatiza el monitoreo de precios de los catalogos de marcas de motos y scooters (actualmente Italika y Bajaj). El sistema realiza scraping periodico de los sitios oficiales de cada marca usando Firecrawl, cruza los precios obtenidos contra el inventario interno del marketplace de Galgo, y notifica por email cuando detecta diferencias de precio.
 
-El proposito central es construir un historial de precios consultable que permita detectar variaciones a lo largo del tiempo: subidas, bajas, aparicion de nuevos modelos y eliminacion de modelos existentes. Los resultados se almacenan en una base de datos estructurada y se exportan a formatos de facil consumo como Google Sheets y CSV/JSON.
+El proposito central es detectar de forma automatica cuando el precio publicado por una marca difiere del precio en el inventario de Galgo, permitiendo actuar oportunamente. Los resultados se exportan a Google Sheets y se acumula un log historico en CSV.
 
-El sistema esta disenado para ejecutarse de forma desatendida, con minima intervencion manual una vez configurado, y para escalar a nuevas fuentes de datos si el negocio lo requiere en el futuro.
+El sistema corre de forma desatendida via GitHub Actions y esta disenado para agregar nuevas marcas con cambios minimos de configuracion.
 
 ---
 
@@ -36,11 +36,10 @@ El sistema esta disenado para ejecutarse de forma desatendida, con minima interv
 
 ### 2.3 Fuera de alcance (non-goals)
 
-- No se contempla el scraping de sitios web distintos a Italika en esta version inicial.
 - No se incluye una interfaz grafica de usuario (dashboard web) propia; la visualizacion se delega a Google Sheets y notebooks.
-- No se realizara ninguna accion automatica derivada de los cambios de precio (por ejemplo, generar ordenes de compra o notificaciones push a dispositivos moviles).
+- No se generaran ordenes de compra ni acciones transaccionales automaticas derivadas de los cambios de precio.
 - No se extraeran imagenes, videos, especificaciones tecnicas ni otro contenido de las paginas de producto mas alla de los campos definidos.
-- No se contempla la comparacion de precios contra competidores distintos a Italika.
+- No se contempla la comparacion de precios contra distribuidores terceros o competidores externos.
 
 ---
 
@@ -93,9 +92,10 @@ Los requerimientos se presentan con su identificador unico, descripcion y priori
   - Modelo nuevo (primera aparicion)
   - Modelo eliminado (ausente en la captura actual)
 
-**RF-005 — Generacion de reporte de cambios** (Prioridad: Alta)
+**RF-005 — Notificacion de diferencias de precio por email** (Prioridad: Alta)
 
-- Al finalizar cada ejecucion, el sistema debe producir un reporte que liste unicamente los modelos con variacion detectada, indicando el precio anterior, el precio nuevo, el tipo de cambio y el timestamp.
+- Al finalizar cada ejecucion, si hay modelos con `price_diff != 0`, el sistema debe enviar un email via Resend API con una tabla HTML por marca que incluya: modelo, precio scrapeado, precio scrapeado con fee, precio neto, diferencia y URLs.
+- Si no hay diferencias de precio, no se envia email.
 
 **RF-006 — Exportacion a Google Sheets** (Prioridad: Media)
 
@@ -120,6 +120,17 @@ Los requerimientos se presentan con su identificador unico, descripcion y priori
 
 - Si una URL individual falla durante la extraccion, el sistema debe registrar el error en el log, omitir ese modelo en la ejecucion actual y continuar con el resto del catalogo.
 - Si el sitio web completo no esta disponible, la ejecucion debe abortarse con un error claro en el log.
+
+**RF-011 — Validacion previa del entorno (preflight)** (Prioridad: Alta)
+
+- Antes de ejecutar el pipeline, el sistema debe validar: variables de entorno requeridas no vacias, existencia del archivo de credenciales de Google Sheets, y acceso real a todas las hojas esperadas en Google Sheets.
+- Si alguna validacion falla, el sistema debe reportar todos los errores encontrados y abortar sin ejecutar scraping.
+- El preflight debe poder ejecutarse como herramienta de diagnostico independiente del pipeline.
+
+**RF-012 — Registro de costos de scraping** (Prioridad: Media)
+
+- Al finalizar cada ejecucion, el sistema debe registrar en la hoja `scraping_costs` de Google Sheets los creditos de Firecrawl consumidos por marca y por step (map y batch_scrape).
+- El registro es acumulativo: cada ejecucion agrega filas sin sobreescribir las anteriores.
 
 ---
 
@@ -206,22 +217,21 @@ Los requerimientos se presentan con su identificador unico, descripcion y priori
 
 ### 7.1 Puntos de integracion
 
-- **Firecrawl API**: para extraccion rapida de contenido HTML/Markdown de paginas estaticas o con contenido expuesto en el HTML inicial. Requiere API key gestionada via variable de entorno.
-- **Playwright**: para renderizado de paginas con contenido cargado dinamicamente via JavaScript. Se activara si Firecrawl no logra exponer los precios en el HTML inicial.
-- **Google Sheets API**: para la exportacion de datos a hojas de calculo compartidas. Requiere credenciales OAuth2 o de cuenta de servicio gestionadas fuera del repositorio.
-- **Base de datos local**: SQLite como opcion preferida para la version inicial por simplicidad; PostgreSQL como alternativa si se requiere acceso concurrente o despliegue en servidor.
+- **Firecrawl API**: scraping de URLs y change tracking. Se usa tanto para descubrimiento de URLs (map) como para extraccion de precios (batch_scrape). Requiere API key via variable de entorno.
+- **Google Sheets API**: lectura del inventario interno y escritura de resultados y costos. Requiere credenciales de cuenta de servicio (archivo JSON) gestionadas fuera del repositorio.
+- **Resend API**: envio de emails HTML con diferencias de precio detectadas. Requiere API key via variable de entorno.
 
 ### 7.2 Estrategia de scraping
 
-- Evaluar primero si Firecrawl es suficiente para exponer los precios del sitio de Italika.
-- Si los precios se cargan via JavaScript asincrono, incorporar Playwright para el scraping detallado de paginas individuales.
-- Una estrategia combinada (Firecrawl para descubrimiento de URLs + Playwright para extraccion de precios) es la opcion mas robusta ante contenido mixto.
+- Firecrawl es suficiente para todas las marcas operativas actuales (Italika, Bajaj). No se usa Playwright.
+- El flujo es: Firecrawl map para descubrir URLs del catalogo + Firecrawl batch_scrape con changeTracking para extraccion de precios.
+- Cada marca tiene su propio modulo de parseo en `src/core/price_tracking/brands/` para manejar diferencias en la estructura HTML de cada sitio.
 
 ### 7.3 Almacenamiento y privacidad
 
-- Los datos almacenados son exclusivamente precios y metadatos publicos del sitio web de Italika; no se manejan datos personales.
-- Las credenciales de servicios externos (Firecrawl, Google Sheets) deben estar en `.env` y en `.gitignore`.
-- Se recomienda realizar backups periodicos del archivo de base de datos SQLite si se usa como almacenamiento principal.
+- Los datos almacenados son exclusivamente precios y metadatos publicos de los sitios web de las marcas; no se manejan datos personales.
+- Almacenamiento principal: Google Sheets (resultados por marca + costos de scraping). Almacenamiento secundario: CSV local acumulativo de diferencias de precio (`data/logs/price_diff_log.csv`).
+- Las credenciales de servicios externos (Firecrawl, Google Sheets, Resend) deben estar en `.env` y en `.gitignore`.
 
 ### 7.4 Escalabilidad y rendimiento
 
@@ -241,10 +251,9 @@ Los requerimientos se presentan con su identificador unico, descripcion y priori
 
 Los siguientes elementos quedan explicitamente excluidos de esta version del proyecto:
 
-- Scraping de sitios web distintos a `italika.mx`.
-- Comparacion de precios contra competidores o distribuidores terceros.
+- Comparacion de precios contra distribuidores terceros o competidores externos.
 - Interfaz grafica web propia para visualizacion de datos.
-- Notificaciones automaticas a dispositivos moviles (push, SMS, WhatsApp).
+- Notificaciones push a dispositivos moviles (SMS, WhatsApp, push notifications).
 - Extraccion de especificaciones tecnicas, imagenes u otro contenido que no sea precio y metadatos de modelo.
 - Gestion de inventario o disponibilidad de stock.
 - Integracion con sistemas ERP o de compras.
@@ -286,37 +295,33 @@ Los siguientes elementos quedan explicitamente excluidos de esta version del pro
 
 ### 10.3 Fases sugeridas
 
-**Fase 1 — Prototipo de scraping** (1-2 semanas)
+**Fase 1 — Prototipo de scraping** ✅ Completada
 
-- Validar si Firecrawl es suficiente o si se requiere Playwright para exponer los precios de Italika.
-- Implementar el modulo de descubrimiento de URLs del catalogo.
-- Implementar el modulo de extraccion de datos por modelo con los 6 campos definidos.
-- Validar la normalizacion y calidad de los datos extraidos.
+- Firecrawl validado como suficiente para todas las marcas operativas (sin Playwright).
+- Modulo de descubrimiento de URLs implementado.
+- Modulo de extraccion de datos por modelo implementado con parseo por marca.
 
-**Fase 2 — Almacenamiento e historial** (1 semana)
+**Fase 2 — Almacenamiento e historial** ✅ Completada
 
-- Diseno e implementacion del esquema de base de datos (SQLite inicial).
-- Implementacion de la logica de insercion de registros con timestamp.
-- Implementacion del modulo de deteccion de cambios (subida, baja, nuevo, eliminado).
+- Historial acumulativo implementado en CSV (`data/logs/price_diff_log.csv`).
+- Deteccion de cambios via Firecrawl changeTracking integrada.
 
-**Fase 3 — Reportes y exportacion** (1 semana)
+**Fase 3 — Reportes y exportacion** ✅ Completada
 
-- Generacion del reporte de cambios por ejecucion.
-- Exportacion a CSV/JSON.
-- Integracion con Google Sheets API para exportacion automatica.
+- Exportacion a Google Sheets por marca implementada.
+- Notificacion por email via Resend implementada (tabla HTML con diferencias de precio).
 
-**Fase 4 — Scheduling, logs y hardening** (1 semana)
+**Fase 4 — Scheduling, logs y hardening** ✅ Completada
 
-- Configuracion del mecanismo de ejecucion programada.
-- Implementacion del sistema de logging.
-- Manejo robusto de errores por URL y por ejecucion.
-- Documentacion del entorno y del proceso de despliegue.
+- GitHub Actions configurado con ejecucion diaria automatica.
+- Preflight de validacion de entorno implementado.
+- Registro de costos de Firecrawl en Google Sheets implementado.
+- Soporte multi-marca (Italika, Bajaj) con arquitectura extensible.
 
-**Fase 5 — Validacion y ajustes** (1 semana)
+**Fase 5 — Validacion y ajustes** ✅ Completada
 
-- Ejecuciones de prueba en condiciones reales.
-- Validacion de la cobertura del catalogo y precision de la deteccion de cambios.
-- Ajustes finos de selectores, delays y configuracion.
+- Pipeline validado en produccion para ambas marcas.
+- Mapeo de nombres ajustado por marca.
 
 ---
 

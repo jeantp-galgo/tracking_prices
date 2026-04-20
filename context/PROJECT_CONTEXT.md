@@ -8,6 +8,7 @@ Esta diseñado para soportar multiples marcas. Actualmente opera con Italika y B
 
 ## Que hace
 
+0. Valida el entorno antes de ejecutar: verifica variables de entorno, credenciales de Google Sheets y existencia de todas las hojas requeridas (preflight). Aborta si algo falla para no gastar creditos de Firecrawl innecesariamente
 1. Descubre y filtra las URLs del catalogo del sitio web oficial de la marca
 2. Guarda y compara las URLs para detectar modelos nuevos o eliminados
 3. Scrapea cada URL usando Firecrawl
@@ -16,8 +17,10 @@ Esta diseñado para soportar multiples marcas. Actualmente opera con Italika y B
 6. Lee la base de inventario (se tiene una hoja específica para esto que viene desde Google Sheets)
 7. Hace un cruce entre la información scrapeada e inventario por modelo y año, con fallback al año mas reciente disponible si no hay match exacto
 8. Calcula la diferencia de precio teniendo en cuenta el fee de Galgo configurado por marca
-9. Exporta el resultado al archivo de Comparativa de precios en la hoja correspondiente a la marca
+9. Exporta el resultado al archivo de Monitoreo de precios en la hoja correspondiente a la marca
 10. Registra en un log historico CSV los modelos con diferencia de precio distinta de cero
+11. Registra los creditos de Firecrawl usados en la ejecucion (por marca y por step) en la hoja `scraping_costs` de Google Sheets
+12. Envia un email con tabla de diferencias de precio via Resend API si alguna marca tiene modelos con `price_diff != 0`
 
 ## Como interpretar la diferencia de precios
 
@@ -40,29 +43,36 @@ Esta seccion es clave para leer correctamente los resultados. El cruce de precio
 ## Flujo general
 
 ```text
-[Proceso 1 — Descubrir las urls]
+[Preflight]
+Validar variables de entorno + key-google-sheets.json + hojas GSheets → OK / Abort
+
+[Proceso 1 — Descubrir las URLs]
 Sitio web de la marca → Firecrawl map (extrae todas las URLs del sitio) → Filtro de URLs → Lista con todas las URLs de la página
 
 [Proceso 2 — Seguimiento de cambios por URLs]
-Lista con todas las URLs → Screapea con Firecrawl (usando la característica de changeTracking) → tabla con la información scrapeada
+Lista con todas las URLs → Scrapea con Firecrawl (usando la característica de changeTracking) → tabla con la información scrapeada
                                                                               ↓
-Google Sheets [MKP] Precios (referencia de precios por modelos) → tabla de base de inventario(filtrado por marca)
+Google Sheets [MKP] Precios (referencia de precios por modelos) → tabla de base de inventario (filtrado por marca)
                                                    ↓
                                Cruce por modelo + año → year_match_type = "exact"
                                Fallback (modelo, año mas reciente) → year_match_type = "fallback_year"
                                                    ↓
                                      Procesar cambios de precios (aplica fee, calcula price_diff)
                                                    ↓
-                      Google Sheets [Scraping - MX] Comparativa de precios → hoja {BRAND_NAME}
+                      Google Sheets [MKP - MX - Resultados] Monitoreo de precios → hoja {BRAND_NAME}
                                                    ↓
                                      data/logs/price_diff_log.csv (solo filas con price_diff != 0)
+                                                   ↓
+                      Google Sheets scraping_costs (creditos Firecrawl usados por marca y step)
+                                                   ↓
+                      Email via Resend (tabla HTML con diferencias de precio, solo si price_diff != 0)
 ```
 
 ## Output
 
 ### Hoja de Google Sheets (resultado principal)
 
-El resultado se escribe en el archivo de Google Sheets **`[Scraping - MX] Comparativa de precios`**, en una hoja cuyo nombre es el `BRAND_NAME` seleccionado (ej. `Italika`, `Bajaj`). Cada ejecucion reemplaza todos los datos de esa hoja.
+El resultado se escribe en el archivo de Google Sheets **`[MKP - MX - Resultados] Monitoreo de precios`**, en una hoja cuyo nombre es el `BRAND_NAME` seleccionado (ej. `Italika`, `Bajaj`). Cada ejecucion reemplaza todos los datos de esa hoja.
 
 Columnas del output:
 
@@ -83,6 +93,7 @@ Columnas del output:
 | `discount_amount` | Descuento |
 | `price_net` | Precio neto del inventario (price_base - discount_amount) |
 | `price_diff` | Diferencia: price_scraped_with_galgo_fee - price_net |
+| `price_diff_without_galgo_fee` | Diferencia: price_scraped - price_net (sin incluir el fee de Galgo) |
 | `price_type` | Tipo de precio scrapeado (contado / oferta / etc.) |
 | `currency` | Moneda (MXN) |
 | `change_status` | Estado de cambio segun Firecrawl (same / new / changed / removed) |
