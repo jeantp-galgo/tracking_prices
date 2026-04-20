@@ -1,3 +1,5 @@
+from src.config.settings import APP_ENV
+
 BRAND_FEES: dict[str, float] = {
     "italika": 1000,
     "bajaj": 0,
@@ -21,6 +23,11 @@ GSHEETS_INVENTORY = {
     "worksheet": "price_data_mx",
 }
 
-GSHEETS_OUTPUT_SHEET = "[MKP - MX - Resultados] Monitoreo de precios"
+if APP_ENV == "development":
+    GSHEETS_OUTPUT_SHEET = "[MKP - MX - DEV] Monitoreo de precios"
+    LOG_PATH = "data/logs/price_diff_log.dev.csv"
+else:
+    GSHEETS_OUTPUT_SHEET = "[MKP - MX - Resultados] Monitoreo de precios"
+    LOG_PATH = "data/logs/price_diff_log.csv"
 
-LOG_PATH = "data/logs/price_diff_log.csv"
+GSHEETS_COSTS_WORKSHEET = "scraping_costs"
