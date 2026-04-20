@@ -21,6 +21,6 @@ GSHEETS_INVENTORY = {
     "worksheet": "price_data_mx",
 }
 
-GSHEETS_OUTPUT_SHEET = "[Scraping - MX] Comparativa de precios"
+GSHEETS_OUTPUT_SHEET = "[MKP - MX - Resultados] Monitoreo de precios"
 
 LOG_PATH = "data/logs/price_diff_log.csv"
