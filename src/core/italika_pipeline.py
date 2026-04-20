@@ -6,7 +6,7 @@ _FINAL_COLUMNS = [
     "captured_at", "previous_scrape_at",
     "code", "brand", "model", "model_name", "year", "year_scraped", "status",
     "price_scraped", "price_scraped_with_galgo_fee", "price_base", "discount_amount",
-    "price_net", "price_diff",
+    "price_net", "price_diff", "price_diff_without_galgo_fee",
     "price_type", "currency", "change_status", "visibility",
     "year_match_type",
     "url_scraped", "marketplace_url",
