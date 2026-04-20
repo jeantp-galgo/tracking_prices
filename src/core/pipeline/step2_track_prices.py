@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config.settings import COUNTRY
+from src.config.settings import APP_ENV, COUNTRY, FIRECRAWL_SCRAPE_CREDITS_PER_URL
 from src.config.brand_configs import BRANDS, GSHEETS_INVENTORY, GSHEETS_OUTPUT_SHEET, LOG_PATH
 from src.core.price_tracking.price_tracking import run_price_tracking
 from src.utils.clean_model_name import clean_model_name
@@ -26,7 +26,10 @@ log = logging.getLogger(__name__)
 
 def load_urls(brand_name: str) -> list[str]:
     """Carga URLs desde el JSON local de la marca, deduplicando."""
-    json_path = Path("src/data/json/brand_urls") / f"{brand_name.lower()}.json"
+    urls_dir = Path("src/data/json/brand_urls")
+    if APP_ENV == "development":
+        urls_dir = urls_dir / "dev"
+    json_path = urls_dir / f"{brand_name.lower()}.json"
     with open(json_path, "r", encoding="utf-8") as f:
         urls = json.load(f)["urls"]
     seen: set[str] = set()
@@ -54,7 +57,10 @@ def prepare_scraped_df(df: pd.DataFrame, brand_name: str) -> pd.DataFrame:
     return df
 
 
-def track_prices_for_brand(brand_name: str, gsheets: GoogleSheetReader) -> pd.DataFrame:
+def track_prices_for_brand(
+    brand_name: str,
+    gsheets: GoogleSheetReader,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Ejecuta el pipeline completo de tracking para una marca."""
     config = BRANDS[brand_name]
 
@@ -88,15 +94,30 @@ def track_prices_for_brand(brand_name: str, gsheets: GoogleSheetReader) -> pd.Da
     )
     log.info(f"[{brand_name}] {len(df_final)} filas escritas en Google Sheets")
 
-    rows_logged = append_price_diff_log(df_final, LOG_PATH)
-    if rows_logged:
-        log.info(f"[{brand_name}] {rows_logged} diferencias de precio registradas en log")
+    df_diffs = append_price_diff_log(df_final, LOG_PATH)
+    if not df_diffs.empty:
+        log.info(f"[{brand_name}] {len(df_diffs)} diferencias de precio registradas en log")
 
-    return df_final
+    cost_entry = {
+        "brand": brand_name,
+        "urls_url_scrapping": len(urls),
+        "credits_url_scrapping": len(urls) * FIRECRAWL_SCRAPE_CREDITS_PER_URL,
+    }
+    return df_final, df_diffs, cost_entry
 
 
-def main(brands: list[str] | None = None) -> None:
+def main(
+    brands: list[str] | None = None,
+) -> tuple[dict[str, pd.DataFrame], list[dict]]:
     gsheets = GoogleSheetReader()
     brands = brands or list(BRANDS.keys())
+    diffs_by_brand: dict[str, pd.DataFrame] = {}
+    cost_entries: list[dict] = []
+
     for brand in brands:
-        track_prices_for_brand(brand, gsheets)
+        _, df_diffs, cost_entry = track_prices_for_brand(brand, gsheets)
+        if not df_diffs.empty:
+            diffs_by_brand[brand] = df_diffs
+        cost_entries.append(cost_entry)
+
+    return diffs_by_brand, cost_entries
