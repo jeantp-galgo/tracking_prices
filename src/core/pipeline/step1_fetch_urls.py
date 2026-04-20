@@ -8,9 +8,9 @@ Uso:
 """
 import json
 import logging
-import argparse
 from pathlib import Path
 
+from src.config.settings import FIRECRAWL_MAP_CREDITS
 from src.core.scraper.app import ScrapingUtils
 from src.core.urls_tracking.urls_tracking import bajaj_filter, italika_filter, compare_urls
 from src.config.brand_configs import BRANDS
@@ -23,7 +23,7 @@ _FILTERS = {
 }
 
 
-def fetch_urls_for_brand(brand_name: str) -> list[str]:
+def fetch_urls_for_brand(brand_name: str) -> tuple[list[str], dict]:
     """Extrae URLs actualizadas para una marca y actualiza el JSON local."""
     config = BRANDS[brand_name]
     scraper = ScrapingUtils()
@@ -40,10 +40,18 @@ def fetch_urls_for_brand(brand_name: str) -> list[str]:
         old_urls = json.load(f)["urls"]
 
     compare_urls(new_urls, old_urls, brand_name)
-    return new_urls
+    cost_entry = {
+        "brand": brand_name,
+        "urls_url_mapping": len(urls_scraped),
+        "credits_url_mapping": FIRECRAWL_MAP_CREDITS,
+    }
+    return new_urls, cost_entry
 
 
-def main(brands: list[str] | None = None) -> None:
+def main(brands: list[str] | None = None) -> list[dict]:
     brands = brands or list(BRANDS.keys())
+    cost_entries: list[dict] = []
     for brand in brands:
-        fetch_urls_for_brand(brand)
+        _, cost_entry = fetch_urls_for_brand(brand)
+        cost_entries.append(cost_entry)
+    return cost_entries
