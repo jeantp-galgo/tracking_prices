@@ -38,9 +38,23 @@ jobs:
           echo "${{ secrets.GOOGLE_SHEETS_KEY_BASE64 }}" | base64 -d \
             > src/config/key-google-sheets.json
 
+      - name: Validar entorno (preflight)
+        env:
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          NOTIFICATION_EMAIL_TO: ${{ secrets.NOTIFICATION_EMAIL_TO }}
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.brands }}" ]; then
+            ARGS="--brands ${{ github.event.inputs.brands }}"
+          fi
+          python -m src.core.pipeline.preflight $ARGS
+
       - name: Ejecutar pipeline
         env:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          NOTIFICATION_EMAIL_TO: ${{ secrets.NOTIFICATION_EMAIL_TO }}
         run: |
           ARGS=""
           if [ -n "${{ github.event.inputs.brands }}" ]; then
