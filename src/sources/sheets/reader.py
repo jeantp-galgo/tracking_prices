@@ -13,9 +13,15 @@ class GoogleSheetReader:
                 sheet_name: str
                 worksheet: str
         """
-        sheet = self.client.open(google_sheet_info["sheet_name"])
-        worksheet = sheet.worksheet(google_sheet_info["worksheet"])
-        return get_as_dataframe(worksheet)
+        try:
+            sheet = self.client.open(google_sheet_info["sheet_name"])
+            worksheet = sheet.worksheet(google_sheet_info["worksheet"])
+            return get_as_dataframe(worksheet)
+        except Exception as e:
+            sheet_name = google_sheet_info.get("sheet_name", "NOMBRE_DESCONOCIDO")
+            print(f"Error al leer la hoja: '{sheet_name}'. Detalle: {e}")
+            raise
+   
 
     def update_sheet(self, google_sheet_info: dict, clear_data: bool = False):
         """
