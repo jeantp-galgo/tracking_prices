@@ -84,16 +84,23 @@ def _build_email_html(diffs_by_brand: dict[str, pd.DataFrame]) -> tuple[str, int
     return html, total_diffs
 
 
+def _parse_recipients(raw: str) -> list[str]:
+    """Parsea uno o varios correos separados por coma desde una variable de entorno."""
+    return [addr.strip() for addr in raw.split(",") if addr.strip()]
+
+
 def send_price_diff_email(diffs_by_brand: dict[str, pd.DataFrame]) -> None:
     """Envía un correo consolidado con diferencias de precio."""
     api_key = os.getenv("RESEND_API_KEY")
-    to_email = os.getenv("NOTIFICATION_EMAIL_TO")
+    to_raw = os.getenv("NOTIFICATION_EMAIL_TO", "")
     from_email = os.getenv("NOTIFICATION_EMAIL_FROM", "onboarding@resend.dev")
 
     if not api_key:
         log.warning("No se envio email de diferencias: falta RESEND_API_KEY.")
         return
-    if not to_email:
+
+    to_list = _parse_recipients(to_raw)
+    if not to_list:
         log.warning("No se envio email de diferencias: falta NOTIFICATION_EMAIL_TO.")
         return
 
@@ -110,11 +117,11 @@ def send_price_diff_email(diffs_by_brand: dict[str, pd.DataFrame]) -> None:
         resend.Emails.send(
             {
                 "from": from_email,
-                "to": [to_email],
+                "to": to_list,
                 "subject": subject,
                 "html": html,
             }
         )
-        log.info("Email de diferencias enviado a %s con %s registros.", to_email, total_diffs)
+        log.info("Email de diferencias enviado a %s con %s registros.", to_list, total_diffs)
     except Exception as exc:  # pragma: no cover
         log.warning("Fallo al enviar email con Resend: %s", exc)
